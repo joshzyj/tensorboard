@@ -87,8 +87,9 @@ Polymer({
     yValueAccessor: Object,
 
     /**
-     * An array of ChartHelper.TooltipColumn objects. Used to populate the table
-     * within the tooltip. The table contains 1 row per run.
+     * An optional array of ChartHelper.TooltipColumn objects. Used to populate
+     * the table within the tooltip. The table contains 1 row per run. If not
+     * provided, no tooltips show.
      */
     tooltipColumns: Array,
 
@@ -168,7 +169,7 @@ Polymer({
     _makeChartAsyncCallbackId: {type: Number, value: null}
   },
   observers: [
-    '_makeChart(xComponentsCreationMethod, yValueAccessor, yScaleType, tooltipColumns, colorScale, _attached)',
+    '_makeChart(xComponentsCreationMethod, yValueAccessor, yScaleType, colorScale, _attached)',
     '_reloadFromCache(_chart)',
     '_smoothingChanged(smoothingEnabled, smoothingWeight, _chart)',
     '_tooltipSortingMethodChanged(tooltipSortingMethod, _chart)',
@@ -246,7 +247,6 @@ Polymer({
       xComponentsCreationMethod,
       yValueAccessor,
       yScaleType,
-      tooltipColumns,
       colorScale,
       _attached) {
     if (this._makeChartAsyncCallbackId !== null) {
@@ -258,8 +258,7 @@ Polymer({
       this._makeChartAsyncCallbackId = null;
       if (!this._attached ||
           !this.xComponentsCreationMethod ||
-          !this.yValueAccessor ||
-          !this.tooltipColumns) {
+          !this.yValueAccessor) {
         return;
       }
       if (this._chart) this._chart.destroy();
@@ -449,7 +448,6 @@ class LineChart {
         (d: ChartHelpers.Datum, i: number, dataset: Plottable.Dataset) =>
             this.colorScale.scale(dataset.metadata().name));
     this.linePlot = linePlot;
-    const group = this.setupTooltips(linePlot, tooltipColumns);
 
     let smoothLinePlot = new Plottable.Plots.Line<number|Date>();
     smoothLinePlot.x(this.xAccessor, xScale);
@@ -482,8 +480,23 @@ class LineChart {
     nanDisplay.symbol(Plottable.SymbolFactories.triangle);
     this.nanDisplay = nanDisplay;
 
-    return new Plottable.Components.Group(
-        [nanDisplay, scatterPlot, smoothLinePlot, group]);
+    const groups = [nanDisplay, scatterPlot, smoothLinePlot];
+    if (tooltipColumns && tooltipColumns.length) {
+      // Only create tooltips if columns for the tooltip table are provided. We perform a double
+      // casting because a TypeScript compile-time error notes that _buildLightweightPlotEntities is
+      // not provided if we directly cast to Plottable.Plots.Line<number>.
+      groups.push(
+          this.setupTooltips(linePlot, tooltipColumns) as any as Plottable.Plots.Line<number>);
+    } else {
+      // The drag zoom layer actually requires some function to be set for interaction start and
+      // end, even if the function does nothing. Had tooltips been provided, then the functions
+      // would pertain to tooltips.
+      const noop = function() {};
+      this.dzl.interactionStart(noop);
+      this.dzl.interactionEnd(noop);
+    }
+
+    return new Plottable.Components.Group(groups);
   }
 
   /** Updates the chart when a dataset changes. Called every time the data of
